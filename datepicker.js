@@ -35,6 +35,7 @@
  *
  * ATTRIBUTES (optional)
  *    value: the initial date to set the picker to (see DATE FORMAT for formatting)
+ *    data-showpans="{true|false}": enables the ability to pan left and right between dates (defaults to "true")
  *    data-pan="{day|week|month|year}": sets the interval of panning (defaults to "day")
  *    data-mindate="{date}": sets the minimum date able to be selected (see DATE FORMAT for formatting)
  *    data-maxdate="{date}": sets the maximum date able to be selected (see DATE FORMAT for formatting)
@@ -44,7 +45,8 @@
  *	  data-datespanend="{other_dp_id}": sets the value of other_dp_id to the currently selected value if the value is greater than other_dp_id
  *	  data-maxdayspan="{integer}": maximum number of days that can be selected between two date pickers
  *		  NOTE: requires datespan[start|end] to be set to work. 
- *
+ *	  data-changeYear="true": Gives the ability for the end user to select the year to which they would like to view
+ *    data-changeMonth="true": Gives the ability for the end user to select the month for which they would like to view
  * DATE FORMAT
  *    Dates supplied to the "value", "data-mindate", and "data-maxdate" attributes must adhere
  *    to the mm/dd/yyyy format. All panning options require a full date. For exmaple, if panning
@@ -107,7 +109,6 @@
             _dpInputSelector = "input[name]" + _dpSelector,
             _dpPanClass = "dp-pan",
             _dpPanSelector = "span.dp-pan",
-			_topFix = 40,
             
             // trigger to determine if the events need set on the DOM
             eventsSet = false,
@@ -145,11 +146,14 @@
 						
 						// icon next to the date to clear the field
 						$clearIcon = $('<a>').attr('title', 'Clear the set date')
-											 .addClass('clear-icon ui-icon ui-icon-triangle-1-ne')
+											 .addClass('clear-icon')
 											 .on('click', function(e) {
 												$altField.datepicker('setDate', '');//.trigger('change');
 												return false;
 											 }),
+											 
+						$panLeft = $pan.clone().addClass("left"),
+						$panRight = $pan.clone().addClass("right"),
 						// Calculate the number of days between two dates
 						// Note: This number will always be positive, even if enddate is < startDate
 						_daysBetween = function(startDate, endDate) {
@@ -178,7 +182,17 @@
 						},
 						// function to toggle show/hide the clear icon. 
                         _toggleClearIcon = function () {    
-                                $clearIcon.toggle(opts.clearIcon && !opts.disabled && $altField.datepicker('getDate') !== null); 
+                            $clearIcon.toggle(opts.clearIcon && !opts.disabled && $altField.datepicker('getDate') !== null); 
+						},
+						// Toggle the DP Spans based on the selected values...
+						_toggleDPSpans = function() {
+							if (opts.disabled || !opts.showPans || $altField.datepicker('getDate') === null) {
+								$panLeft.hide();
+								$panRight.hide();
+							} else {
+								$panLeft.show();
+								$panRight.show();
+							}
 						},
 						// Manage date spans when we have two fields tied to each other. These are set
 						// via data-datespan[start|end]
@@ -277,20 +291,24 @@
 
 						},						
 						currentDate;
-					// Private function to destroy a current date picker instance. 
-					$dispField.destroy = function() {
-						// remove all elements around the original datepicker input and reset the value
-						var $datepicker = $('#' + $(this).data('datepicker_ID'));
-						// Remove any attributes applied to the display field
-						$(this).prop({readonly: false, disabled: false});
-						$(this).val($datepicker.val());
-						
-						$datepicker.datepicker('destroy');
-						
-						$(this).siblings().remove();
-						$(this).unwrap();
-						$(this).attr("name", $dispField.data("name"));
-					}
+					
+					$dispField
+						.attr('placeholder', 'Select Date')
+						.addClass('form-control')
+						// Private function to destroy a current date picker instance. 
+						.destroy = function() {
+							// remove all elements around the original datepicker input and reset the value
+							var $datepicker = $('#' + $(this).data('datepicker_ID'));
+							// Remove any attributes applied to the display field
+							$(this).prop({readonly: false, disabled: false});
+							$(this).val($datepicker.val());
+							
+							$datepicker.datepicker('destroy');
+							
+							$(this).siblings().remove();
+							$(this).unwrap();
+							$(this).attr("name", $dispField.data("name"));
+						}
 					
 					// reinit the datepicker
 					if (reinit) {
@@ -321,6 +339,7 @@
                     $altField.datepicker(opts)
                         // Bind to the change event
                         .on('change', _toggleClearIcon)
+						.on('change', _toggleDPSpans)
 						.on('change', _manageDateSpan)
                     
                     // set the date based on the pan
@@ -331,16 +350,18 @@
                         $altField.datepicker("setDate", adjustDateByPan(currentDate, $altField));
                     }
   	
+
+	
                     // create the container
                     $dispField.wrap($container.clone())
                         // append the alternate field
                         .before($altField)
                         
                         // append the left pan
-                        .before($pan.clone().addClass("left"))
+                        .before($panLeft)
                         
                         // append the right pan
-                        .after($pan.clone().addClass("right"))
+                        .after($panRight)
 
 						// append the clear date icon
 						.after($clearIcon)	
@@ -356,9 +377,12 @@
 						
                         .prop({"readonly": true, disabled: opts.disabled});
 
+					// Initialize the defaults
 					_manageDateSpan();
-
                     _toggleClearIcon();
+					_toggleDPSpans();
+					// Custom event for those watching to see when the DP has been fully initialized
+					$dispField.trigger("dpinit");
                 });
             },
             
@@ -373,7 +397,6 @@
                 var opts = {
                     altField: null,
                     altFormat: getFormat($picker.data("pan")).altFormat,
-                    changeMonth: false,
                     firstDay: 1,
                     dateFormat: getFormat($picker.data("pan")).displayFormat,
                     onSelect: function(dateText, i) {
@@ -381,12 +404,15 @@
                             $(this).trigger('change', [dateText, i]);    
                         }
                     },
-                    disabled: $picker.data("pan") === "month" || $picker.data("pan") === "year",
+                    disabled: $picker.data("pan") === "month" || $picker.data("pan") === "year" || $picker.prop('disabled'),
                     showWeek: $picker.data("pan") === "week",
                     clearIcon: $picker.data("clearicon") !== undefined && $.trim($picker.data("clearicon")) !== "" && $picker.data("clearicon"),
 					maxDaySpan: null,
 					dateSpanStart: null,
-					dateSpanEnd: null
+					dateSpanEnd: null,
+					showPans: $picker.data("showpans") !== false,
+					changeMonth: $picker.data('changemonth') !== undefined && $.trim($picker.data('changemonth')) !== '' && $picker.data('changemonth'),
+					changeYear: $picker.data('changeyear') !== undefined && $.trim($picker.data('changeyear')) !== '' && $picker.data('changeyear')
                     
                 };
                 
@@ -403,11 +429,13 @@
 					opts.maxDaySpan = $picker.data("maxdayspan");	
 				}
 				
-				if ($picker.data('datespanstart') !== undefined && $.trim($picker.data('datespanstart')) !== "" && $('[name=' + $picker.data('datespanstart') + ']').length > 0) {
+				if ($picker.data('datespanstart') !== undefined && $.trim($picker.data('datespanstart')) !== "" && 
+					($('#' + $picker.data('datespanstart')).length > 0)) {
 					opts.dateSpanStart = $picker.data('datespanstart');
 				}	
 
-				if ($picker.data('datespanend') !== undefined && $.trim($picker.data('datespanend')) !== "" && $('[name=' + $picker.data('datespanend') + ']').length > 0) {
+				if ($picker.data('datespanend') !== undefined && $.trim($picker.data('datespanend')) !== "" &&
+					$('#' + $picker.data('datespanend')).length > 0) {
 					opts.dateSpanEnd = $picker.data('datespanend');
 				}
 				
@@ -454,16 +482,28 @@
                     // Because the datepicker is actualy on the hidden field, we must trigger
                     // the display of the datepicker when the display field is clicked
                     $(window.document.body).on("click.date-picker", _dpSelector, function (e) {
+						e.preventDefault();
+						
                         var $this = $(this),
                             $dp = $this.parent().children(".hasDatepicker");
+						
+						// close the dialog if it's visible	
+						if ($dp.datepicker("widget").is(":visible")) {
+							return false;	
+						}
                         
                         $dp.datepicker("show");
-						$dp.datepicker("widget").css("top", $dp.datepicker("widget").position().top + _topFix);
+						$dp.datepicker("widget").position({
+							my: "top",
+							at: "bottom",
+							of: $this
+						});
                     });
                         
                     // Adjust the date when clicking the < or > pans, optionally holding the buttons down for a quick pan
                     $(window.document.body).on({
                         "mousedown.date-picker-pan": function (e) {
+							e.preventDefault();
 							// Left mouse click only
                             if (e.which === 1) {
 								var $this = $(this),
@@ -551,10 +591,12 @@
                         },
                         
                         "mouseup.date-picker-pan": function (e) {
-                            clearTimeout(timeout);                    
+							e.preventDefault();
+                            clearTimeout(timeout);
                         },
                         
                         "mouseleave.date-picker-pan": function (e) {
+							e.preventDefault();
                             clearTimeout(timeout);    
                         }
                     }, clsPan);
